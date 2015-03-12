@@ -7,6 +7,26 @@
  */
 class Http
 {
+
+	/**
+	 *
+	 * ASYNC REQUEST
+	 *
+	 */
+	public static function asyncRequest($url, $params = array()){
+		if(function_exists('exec')){
+			if($params){
+				$params_string = http_build_query($params, '', '&');
+				$params = " -d '$params_string' ";	
+			}else{
+				$params = '';	
+			}
+			$curl_cmd = "CURL -s '$url' $params > /dev/null 2>&1 &";
+			exec($curl_cmd);
+		}
+		return self::socketRequest($url, $params, false);	
+	}
+
 	/**
 	 * SOCKET 请求
 	 *

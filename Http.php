@@ -53,5 +53,32 @@ class Http
 		fclose($fp);
 		return $result;
 	}
-	
-} // END class 
+
+	/**
+	 * 
+	 * CURL REQUEST
+	 *
+	 */
+	public static function curlRequest($url, $params, $headers = array(), $wait_result = true, $connect_timeout = 3, $max_redirect = 5){
+		$ch = curl_init($url);
+		if(!is_resource($ch)){
+			throw new Exception('curl init failed');
+		}
+		//bool
+		curl_setopt($ch, CURLOPT_AUTOREFERER, true);	
+		curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+		curl_setopt($ch, CURLOPT_POST, true);
+		curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+		curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+		//integer
+		curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $connect_timeout);
+		curl_setopt($ch, CURLOPT_MAXREDIRS, $max_redirect);
+		//array
+		curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+		curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
+		$result = curl_exec($ch);
+		curl_close($ch);
+		return $result;
+	}	
+} 

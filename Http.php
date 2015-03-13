@@ -7,6 +7,7 @@
  */
 class Http
 {
+	public static $UA = "HTTP CLIENT(PHP)";
 
 	/**
 	 *
@@ -33,7 +34,7 @@ class Http
 	 * @return void
 	 * @author Heng Min Zhan
 	 */
-	public static function socketRequest($url, $params, $wait_result = true, $connect_timeout = 3)
+	public static function socketRequest($url, $params = array(), $headers = array(), $wait_result = true, $connect_timeout = 3)
 	{
 		$method = 'GET';
 		if($params){
@@ -45,6 +46,9 @@ class Http
 			}
 		}
 	    $parts=parse_url($url);
+		if(!isset($parts['path'])){
+			$parts['path'] = '';
+		}
 		if(isset($parts['port'])){
 			$port =	$parts['port'];
 		}else{
@@ -55,22 +59,61 @@ class Http
 	    {
 			throw new Exception($errstr, $errno);
 	    }
-	    $out = "$method {$parts['path']} HTTP/1.1\r\n";
-	    $out.= "Host: {$parts['host']}\r\n";
-	    $out.= "Content-Type: application/x-www-form-urlencoded\r\n";
-	    $out.= "Connection: Close\r\n\r\n";
+		if(!isset($headers['User-Agent'])){
+			$headers['User-Agent'] = self::$UA;
+		}
+	    $out  = "$method {$parts['path']} HTTP/1.1\r\n";
+	    $out .= "Host: {$parts['host']}\r\n";
+	    $out .= "Connection: Close\r\n";
+		foreach($headers as $key => $val){
+			$out .= "{$key}: {$val}\r\n";
+		}
+		$out .= "\r\n";
 		if (isset($post_string)) {
 			$out.= $post_string;
+			$out .= "Content-Type: application/x-www-form-urlencoded\r\n";
 			$out.= "Content-Length: ".strlen($post_string)."\r\n";
 		}
 	    fwrite($fp, $out);
-		$result = '';
+		$headers = array();
+		$body = '';
+		$http_code = "";
 		if($wait_result){
+			//read and parse header
+			$http_code = trim(fgets($fp, 256));
 			while (!feof($fp)) {
-				    $result .= fgets($fp, 1024);
+				$line = trim(fgets($fp, 256));
+				if(empty($line)){
+					break;
+				}
+				list($key, $val) = explode(':', $line, 2);	
+				$key = trim($key);
+				$val = trim($val);
+				$headers[$key] = $val;
+			}
+			//read body
+			//分块传输编码只在HTTP协议1.1版本（HTTP/1.1）中提供
+			if(isset($headers['Transfer-Encoding']) && $headers['Transfer-Encoding'] == 'chunked'){
+				while (!feof($fp)) {
+					$line = fgets($fp, 256);
+					if($line && preg_match('/^([0-9a-f]+)/i', $line, $matches)){
+						$len = hexdec($matches[1]);
+						if($len == 0){
+							break;//maybe have some other header
+						}
+						$body .= fread($fp, $len);
+					}
+				}
+			}else if(isset($headers['Content-Length']) && $len = $headers['Content-Length']){
+				$body .= fread($fp, $len);		
+			}else{
+				while(!feof($fp)){
+					$body .= fread($fp, 1024 * 8);
+				}	
 			}
 		}
 		fclose($fp);
+		$result = array('header' => $headers, 'body' => $body);
 		return $result;
 	}
 

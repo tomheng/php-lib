@@ -68,11 +68,14 @@ class Http
 		foreach($headers as $key => $val){
 			$out .= "{$key}: {$val}\r\n";
 		}
+		if(function_exists('gzinflate')){
+			$out .= "Accept-Encoding: gzip,deflate\r\n";
+		}
 		$out .= "\r\n";
 		if (isset($post_string)) {
-			$out.= $post_string;
+			$out .= $post_string;
 			$out .= "Content-Type: application/x-www-form-urlencoded\r\n";
-			$out.= "Content-Length: ".strlen($post_string)."\r\n";
+			$out .= "Content-Length: ".strlen($post_string)."\r\n";
 		}
 		fwrite($fp, $out);
 		$headers = array();
@@ -110,6 +113,9 @@ class Http
 				while(!feof($fp)){
 					$body .= fread($fp, 1024 * 8);
 				}	
+			}
+			if($body && $headers['Content-Encoding'] == 'gzip'){
+				$body = gzinflate(substr($body, 10));
 			}
 		}
 		fclose($fp);

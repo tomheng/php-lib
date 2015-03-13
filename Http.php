@@ -78,10 +78,10 @@ class Http
 		fwrite($fp, $out);
 		$headers = array();
 		$body = '';
-		$http_code = "";
+		$http_status = "";
 		if($wait_result){
 			//read and parse header
-			$http_code = trim(fgets($fp, 256));
+			$http_status = trim(fgets($fp, 256));
 			while (!feof($fp)) {
 				$line = trim(fgets($fp, 256));
 				if(empty($line)){
@@ -117,7 +117,7 @@ class Http
 			}
 		}
 		fclose($fp);
-		$result = array('header' => $headers, 'body' => $body);
+		$result = array('header' => $headers, 'body' => $body, 'http_status' => $http_status);
 		return $result;
 	}
 

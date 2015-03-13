@@ -45,7 +45,7 @@ class Http
 				$post_string = trim($params);
 			}
 		}
-	    $parts=parse_url($url);
+		$parts=parse_url($url);
 		if(!isset($parts['path'])){
 			$parts['path'] = '';
 		}
@@ -54,17 +54,17 @@ class Http
 		}else{
 			$port = 80;
 		}
-	    $fp = fsockopen($parts['host'], $port, $errno, $errstr, $connect_timeout);
-	    if(!$fp)
-	    {
+		$fp = fsockopen($parts['host'], $port, $errno, $errstr, $connect_timeout);
+		if(!$fp)
+		{
 			throw new Exception($errstr, $errno);
-	    }
+		}
 		if(!isset($headers['User-Agent'])){
 			$headers['User-Agent'] = self::$UA;
 		}
-	    $out  = "$method {$parts['path']} HTTP/1.1\r\n";
-	    $out .= "Host: {$parts['host']}\r\n";
-	    $out .= "Connection: Close\r\n";
+		$out  = "$method {$parts['path']} HTTP/1.1\r\n";
+		$out .= "Host: {$parts['host']}\r\n";
+		$out .= "Connection: Close\r\n";
 		foreach($headers as $key => $val){
 			$out .= "{$key}: {$val}\r\n";
 		}
@@ -74,7 +74,7 @@ class Http
 			$out .= "Content-Type: application/x-www-form-urlencoded\r\n";
 			$out.= "Content-Length: ".strlen($post_string)."\r\n";
 		}
-	    fwrite($fp, $out);
+		fwrite($fp, $out);
 		$headers = array();
 		$body = '';
 		$http_code = "";

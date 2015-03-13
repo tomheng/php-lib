@@ -47,14 +47,12 @@ class Http
 		}
 		$parts=parse_url($url);
 		if(!isset($parts['path'])){
-			$parts['path'] = '';
+			$parts['path'] = '/';
 		}
-		if(isset($parts['port'])){
-			$port =	$parts['port'];
-		}else{
-			$port = 80;
+		if(!isset($parts['port'])){
+			$parts['port'] = 80;
 		}
-		$fp = fsockopen($parts['host'], $port, $errno, $errstr, $connect_timeout);
+		$fp = fsockopen($parts['host'], $parts['port'], $errno, $errstr, $connect_timeout);
 		if(!$fp)
 		{
 			throw new Exception($errstr, $errno);

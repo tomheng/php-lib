@@ -33,7 +33,8 @@ class  Common
 			imagesetpixel($image, rand(1, $width), rand(1, $width), $pointcolor);
 		}
 		//随机线，生成干扰线
-		for($i = 0;$i<3;$i++){
+		$line_num = floor($width / $height);
+		for($i = 0; $i < $line_num ;$i++){
 			$linecolor = imagecolorallocate($image, rand(80, 220), rand(80, 220), rand(80, 220));
 			imageline($image, rand(1, $width), rand(1, $height), rand(1, $width), rand(1, $height), $linecolor);
 		}

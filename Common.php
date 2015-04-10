@@ -7,6 +7,45 @@
  */
 class  Common
 {
+	//获取文件的最后一行
+	private static function getLastLine($file_name, $truncate = true)
+	{
+		$line = '';
+
+		$f = fopen($file_name, 'r');
+		if(!flock($f, LOCK_EX|LOCK_NB))
+		{
+			throw new Exception("文件($file_name)正在被占用");
+		}
+		$cursor = -1;
+
+		fseek($f, $cursor, SEEK_END);
+		$char = fgetc($f);
+
+		/**
+		 * Trim trailing newline chars of the file
+		 */
+		while ($char === "\n" || $char === "\r") {
+			fseek($f, $cursor--, SEEK_END);
+			$char = fgetc($f);
+		}
+
+		/**
+		 * Read until the start of file or first newline char
+		 */
+		while ($char !== false && $char !== "\n" && $char !== "\r") {
+			/**
+			 * Prepend the new char
+			 */
+			$line = $char . $line;
+			fseek($f, $cursor--, SEEK_END);
+			$char = fgetc($f);
+		}
+		$truncate && ftruncate($f, filesize($file_name) - strlen($line));
+		flock($f, LOCK_UN);
+		fclose($f);
+		return $line;	
+	}
 
 	//验证码生成
 	static public function showCaptcha($width = 100,  $height = 30,  $len){

@@ -13,22 +13,15 @@ class FileQueue
 	private static $file_path = '/var/data/www';
 
 	//加入队列
-	public static function push($data, $type, $repeatable = false)
+	public static function push($data, $type)
 	{
 		$file_path = self::getFile($type);
 		if(is_array($data))
 		{
 			$data = implode('||', $data);
 		}	
-		$mcd = new MyMemcached();
-		$key = 'filequeue_key_'.md5($data);
-		if(!$repeatable && $mcd->get($key))
-		{
-			return true;
-		}
 		//$old_data = file_get_contents($file_path);
 		$re = file_put_contents($file_path, $data.PHP_EOL, LOCK_EX|FILE_APPEND);
-		$mcd->set($key, true, 60);
 		return $re;
 	}	
 

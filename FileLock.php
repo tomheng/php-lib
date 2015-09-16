@@ -8,7 +8,7 @@
 
 class FileLock {
 	
-	private $all_lock_names = array();
+	private $all_lock_handles = array();
 	private $lock_dir = "/tmp";
 	
 	public function __construct($lock_dir = 0){
@@ -36,14 +36,15 @@ class FileLock {
     public function begin($name, $block = false) {
 		$lock_file = $this->getLockFile($name);
 		$fp = fopen($lock_file, "w+");
-		$this->all_lock_names[] = $name;
 		$opt = LOCK_EX;
-		if($block){
+		if(!$block){
 			$opt |= LOCK_NB;
 		}
 		if (!flock($fp, $opt)) {  // acquire an exclusive lock
 		    throw new Exception("Couldn't get the lock $lock_file !\n");
 		}
+		//要将文件句柄保存到类变量中
+		$this->all_lock_handles[$name] = $fp;
 		return true;
     }
 	
@@ -51,14 +52,19 @@ class FileLock {
      * 释放锁
      */
     public function release($name){
-        unlink($this->getLockFile($name));
+		$handle = $this->all_lock_handles[$name];
+		if($handle){
+	     	@flock($handle, LOCK_UN);
+	        @fclose($handle);
+		}
+        @unlink($this->getLockFile($name));
     }
 	
     /**
      * 释放所有的锁
      */
     public function __destruct(){
-        foreach ($this->all_lock_names as $name) {
+        foreach ($this->all_lock_handles as $name) {
             # code...
             $this->release($name);
         }

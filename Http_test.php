@@ -9,7 +9,7 @@
  */
 require 'Http.php';
 $url = "http://www.baidu.com";
-$url = "http://221.179.190.191/admin/test.php";
-$re = Http::socketRequest($url);
+//$re = Http::socketRequest($url);
+$re = Http::get($url);
 //var_dump($re);
 print_r($re);

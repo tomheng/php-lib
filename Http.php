@@ -9,6 +9,23 @@ class Http
 {
 	public static $UA = "HTTP CLIENT(PHP)";
 
+	public static function getHandler(){
+		if(function_exists('curl_init')){
+			return 'curlRequest';
+		}
+		return 'socketRequest';
+	}
+
+	public function get($url, $headers = array(), $connect_timeout = 1, $read_timeout = 3){
+		$handler = self::getHandler();
+		return self::$handler($url, null, $headers, true, $connect_timeout = 1, $read_timeout = 3);
+	}
+
+	public function post($url, $params = array(), $headers = array(), $connect_timeout = 1, $read_timeout = 3){
+		$handler = self::getHandler();
+		return self::$handler($url, $params, $headers, true, $connect_timeout = 1, $read_timeout = 3);
+	}
+
 	/**
 	*
 	* ASYNC REQUEST
@@ -87,10 +104,8 @@ class Http
 				if(empty($line)){
 					break;
 				}
-				list($key, $val) = explode(':', $line, 2);	
-				$key = trim($key);
-				$val = trim($val);
-				$headers[$key] = $val;
+				list($key, $val) = explode(':', $line, 2);
+				$headers[$key] = trim($val);
 			}
 			//read body
 			//分块传输编码只在HTTP协议1.1版本（HTTP/1.1）中提供
@@ -117,8 +132,8 @@ class Http
 			}
 		}
 		fclose($fp);
-		$result = array('http_status' => $http_status, 'header' => $headers, 'body' => $body);
-		return $result;
+		//$result = array('http_status' => $http_status, 'header' => $headers, 'body' => $body);
+		return new HttpResponse($http_status, $headers, $body);
 	}
 
 	/**
@@ -126,27 +141,37 @@ class Http
 	* CURL REQUEST
 	*
 	*/
-	public static function curlRequest($url, $params, $headers = array(), $wait_result = true, $connect_timeout = 3, $max_redirect = 5){
+	public static function curlRequest($url, $params = array(), $headers = array(), $wait_result = true, $connect_timeout = 1, $read_timeout = 3, $max_redirect = 2){
+		$re= self::multiCurl(array(
+			array(
+				'url' => $url,
+				'params' => $params,
+				'headers' => $headers,
+			),
+		), true, $connect_timeout, $read_timeout, $max_redirect);
+		//$result = is_array($re) && isset($re[$url]) ? $re[$url]['result'] : '';		
+		return current($re);
+	}
+	
+	public static function getCurlInstance($url, $connect_timeout = 1, $read_timeout = 3, $max_redirect = 2){
 		$ch = curl_init($url);
 		if(!is_resource($ch)){
 			throw new Exception('curl init failed');
 		}
-		//bool
-		curl_setopt($ch, CURLOPT_AUTOREFERER, true);	
-		curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-		curl_setopt($ch, CURLOPT_POST, true);
+		//bool		
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-		curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+		curl_setopt($ch, CURLOPT_HEADER, 1);
+		//curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
 		//integer
-		curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $connect_timeout);
-		curl_setopt($ch, CURLOPT_MAXREDIRS, $max_redirect);
-		//array
-		curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-		curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
-		$result = curl_exec($ch);
-		curl_close($ch);
-		return $result;
+		curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, $connect_timeout*1000);
+		curl_setopt($ch, CURLOPT_TIMEOUT_MS, ($read_timeout + $connect_timeout)*1000);
+		curl_setopt($ch, CURLOPT_NOSIGNAL, 1);
+		if($max_redirect >= 0){
+			curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+			curl_setopt($ch, CURLOPT_AUTOREFERER, true);
+			curl_setopt($ch, CURLOPT_MAXREDIRS, $max_redirect);
+		}
+		return $ch;
 	}
 	
 	/*
@@ -155,29 +180,31 @@ class Http
 	* @param: $urls array url列表
 	* @param: $callback string 需要进行内容处理的回调函数。示例：func(array)
 	*/
-	public static function multiCurl($urls = array(), $callback = '', $timeout = 1)
+	public static function multiCurl($request_list, $callback = '', $connect_timeout = 1, $read_timeout = 3, $max_redirect = 2)
 	{
 		$response = array();
-		if (empty($urls)) {
+		if (empty($request_list)) {
 			return $response;
 		}
 		$chs = curl_multi_init();
 		//使用HTTP长连接
 		if(function_exists("curl_multi_setopt")){
-			curl_multi_setopt($chs, CURLMOPT_PIPELINING);
+			curl_multi_setopt($chs, CURLMOPT_PIPELINING, 1);
 		}
 		$curl_list = array();
-		foreach($urls as $url){
-			$ch = curl_init();
-			curl_setopt($ch, CURLOPT_URL, $url);
-			curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
-			curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-			curl_setopt($ch, CURLOPT_HEADER, 0);
-			curl_setopt($ch, CURLOPT_NOSIGNAL, true);
+		foreach($request_list as $req){			
+			list($url, $params, $headers) = array_values($req);
+			$ch = self::getCurlInstance($url, $connect_timeout, $read_timeout, $max_redirect);
+			curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+			if($params){
+				curl_setopt($ch, CURLOPT_USERAGENT, self::$UA);
+				curl_setopt($ch, CURLOPT_POST, 1);
+				curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
+			}
 			curl_multi_add_handle($chs, $ch);
 			$curl_list[] = $ch;
 		}
-		$callback = trim($callback);
+		//$callback = trim($callback);
 		do{
 			$status = curl_multi_exec($chs, $active);
 			//Solve CPU 100% usage, a more simple and right way:
@@ -187,12 +214,29 @@ class Http
 			while ($done = curl_multi_info_read($chs)) {
 				$info = curl_getinfo($done["handle"]);
 				$error = curl_error($done["handle"]);
+				if($error){
+					throw new Exception($error);
+				}
 				$result = curl_multi_getcontent($done["handle"]);
-				$rtn = compact('info', 'error', 'result');
+				$header_lines = substr($result, 0, $info['header_size']);
+				$http_status = $headers = array();
+				foreach(explode("\r\n", $header_lines) as $ln => $line){
+					if($ln == 0){
+						list($http_status['version'], $http_status['code'], $http_status['desc'])  = explode(' ', $line);
+						continue;
+					}
+					if(empty($line)){
+						continue;
+					}
+					list($key, $val) = explode(':', $line, 2);
+					$headers[$key] = trim($val);
+				}
+				$body = substr($result, $info['header_size']);
+				$rtn = new HttpResponse($http_status, $headers, $body);//compact('info', 'error', 'result');
 				if(is_callable($callback)){
 					$callback($rtn);
 				}else{
-					$response[$url] = $rtn;
+					$response[] = $rtn;
 				}
 			}
 		}
@@ -205,3 +249,24 @@ class Http
 		return $response;
 	}
 } 
+
+class HttpResponse {
+	
+	public $status = array();
+	public $header = array();
+	public $body = '';
+	
+	public function __construct($status, $header, $body){
+		$this->status = $status;
+		$this->header = $header;
+		$this->body = $body;
+	}
+	
+	public function json(){
+		return json_decode($this->body, true);
+	}
+	
+	public function raw(){
+		return $this->body;
+	}
+}

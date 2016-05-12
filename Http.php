@@ -16,14 +16,14 @@ class Http
 		return 'socketRequest';
 	}
 
-	public function get($url, $headers = array(), $connect_timeout = 1, $read_timeout = 3){
+	public static function get($url, $headers = array(), $connect_timeout = 1, $read_timeout = 1){
 		$handler = self::getHandler();
-		return self::$handler($url, null, $headers, true, $connect_timeout = 1, $read_timeout = 3);
+		return self::$handler($url, null, $headers, true, $connect_timeout, $read_timeout);
 	}
 
-	public function post($url, $params = array(), $headers = array(), $connect_timeout = 1, $read_timeout = 3){
+	public static function post($url, $params = array(), $headers = array(), $connect_timeout = 1, $read_timeout = 1){
 		$handler = self::getHandler();
-		return self::$handler($url, $params, $headers, true, $connect_timeout = 1, $read_timeout = 3);
+		return self::$handler($url, $params, $headers, true, $connect_timeout, $read_timeout);
 	}
 
 	/**
@@ -39,10 +39,23 @@ class Http
 			}else{
 				$params = '';	
 			}
-			$curl_cmd = "CURL -s '$url' $params > /dev/null 2>&1 &";
-			exec($curl_cmd);
+			$curl_cmd = "curl -s '$url' $params > /dev/null 2>&1 &";
+			return exec($curl_cmd);
 		}
 		return self::socketRequest($url, $params, false);	
+	}
+
+	//构建header, 最终形式
+	// array("Content-type: text/html", "Key: Value");
+	public static function buildHeader($headers){
+		$result = array();
+		foreach($headers as $key => $val){
+			if(!is_int($key)){
+				$val = "{$key}: {$val}";
+			}
+			$result[] = str_replace("\r\n", '', $val);
+		}
+		return $result;
 	}
 
 	/**
@@ -53,14 +66,10 @@ class Http
 	*/
 	public static function socketRequest($url, $params = array(), $headers = array(), $wait_result = true, $connect_timeout = 3)
 	{
+		$crlf = "\r\n";
 		$method = 'GET';
 		if($params){
 			$method = 'POST';
-			if(is_array($params)){
-				$post_string = http_build_query($params, '', '&');
-			}else{
-				$post_string = trim($params);
-			}
 		}
 		$parts=parse_url($url);
 		if(!isset($parts['path'])){
@@ -69,36 +78,60 @@ class Http
 		if(!isset($parts['port'])){
 			$parts['port'] = 80;
 		}
-		$fp = fsockopen($parts['host'], $parts['port'], $errno, $errstr, $connect_timeout);
-		if(!$fp)
-		{
-			throw new Exception($errstr, $errno);
-		}
 		if(!isset($headers['User-Agent'])){
 			$headers['User-Agent'] = self::$UA;
 		}
-		$out  = "$method {$parts['path']} HTTP/1.1\r\n";
-		$out .= "Host: {$parts['host']}\r\n";
-		$out .= "Connection: Close\r\n";
-		foreach($headers as $key => $val){
-			$out .= "{$key}: {$val}\r\n";
-		}
+		$out = array();
+		$out[] = "$method {$parts['path']}?{$parts['query']} HTTP/1.1";
+		$out[] = "Host: {$parts['host']}";
+		$out[] = "Connection: Close";
+		
 		if(function_exists('gzinflate')){
-			$out .= "Accept-Encoding: gzip,deflate\r\n";
+			$headers["Accept-Encoding"] = "gzip,deflate";
 		}
-		$out .= "\r\n";
-		if (isset($post_string)) {
-			$out .= $post_string;
-			$out .= "Content-Type: application/x-www-form-urlencoded\r\n";
-			$out .= "Content-Length: ".strlen($post_string)."\r\n";
+		$post_string = '';
+		if ($method == 'POST') {
+			if(is_array($params)){
+				$headers['Content-Type'] = "application/x-www-form-urlencoded";
+				$post_string = http_build_query($params, '', '&');
+			}else{
+				$post_string = trim($params);
+			}
+			//must have it
+			$headers['Content-Length'] = strlen($post_string);
 		}
-		fwrite($fp, $out);
+		if($headers){
+			$out = array_merge($out, self::buildHeader($headers));
+		}
+		//header end
+		$out[] = '';
+		$out[] = $post_string;
+		$fp = fsockopen($parts['host'], $parts['port'], $errno, $errstr, $connect_timeout);
+		if(!$fp)
+		{
+			return new HttpResponse('', '', '', new Exception("url: $url, error: $errstr", $errno));
+		}		
+		$string = implode($crlf, $out);
+		$str_len = strlen($string);
+		for ($written = 0, $fwrite = 0; $written < $str_len; $written += $fwrite) {
+			$fwrite = fwrite($fp, substr($string, $written));
+			if ($fwrite === false) {
+				break;
+			}
+		}
+		if($fwrite != $str_len){
+			fclose($fp);
+			return new HttpResponse('', '', '', new Exception("url: $url, error: $fwrite, $str_len "));
+		}
+		//fwrite($fp, implode($crlf, $out));
+		//repsonse header
 		$headers = array();
 		$body = '';
 		$http_status = array();
 		if($wait_result){
 			//read and parse header
 			list($http_status['version'], $http_status['code'], $http_status['desc'])  = explode(' ', trim(fgets($fp, 256)));
+			
 			while (!feof($fp)) {
 				$line = trim(fgets($fp, 256));
 				if(empty($line)){
@@ -117,8 +150,9 @@ class Http
 						if($len == 0){
 							break;//maybe have some other header
 						}
-						$body .= fread($fp, $len);
+						$line = fread($fp, $len);
 					}
+					$body .= $line;
 				}
 			}else if(isset($headers['Content-Length']) && $len = $headers['Content-Length']){
 				$body .= fread($fp, $len);		
@@ -156,7 +190,7 @@ class Http
 	public static function getCurlInstance($url, $connect_timeout = 1, $read_timeout = 3, $max_redirect = 2){
 		$ch = curl_init($url);
 		if(!is_resource($ch)){
-			throw new Exception('curl init failed');
+			return false;
 		}
 		//bool		
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -174,6 +208,35 @@ class Http
 		return $ch;
 	}
 	
+	
+	public static function parseHeaders($raw_headers)
+	{
+		$headers = array();
+		$key = '';
+		foreach(explode("\n", $raw_headers) as $i => $h){
+			$h = explode(':', $h, 2);
+			if (isset($h[1])){
+				if (!isset($headers[$h[0]])){
+					$headers[$h[0]] = trim($h[1]);
+				}elseif (is_array($headers[$h[0]])){
+					$headers[$h[0]] = array_merge($headers[$h[0]], array(trim($h[1]))); // [+]
+				}else{
+					$headers[$h[0]] = array_merge(array($headers[$h[0]]), array(trim($h[1])));
+				}
+				//record it
+				$key = $h[0];
+			}else{
+				if(substr($h[0], 0, 1) == "\t"){
+					$headers[$key] .= "\r\n\t".trim($h[0]);
+				}elseif (!$key){
+					$headers[0] = trim($h[0]);
+				}		
+			} 
+		}
+		return $headers;
+	}
+	
+	
 	/*
 	* @purpose: 使用curl并行处理url
 	* @return: array 每个url获取的数据
@@ -184,7 +247,7 @@ class Http
 	{
 		$response = array();
 		if (empty($request_list)) {
-			return $response;
+			return array(new HttpResponse('', '', '', new Exception("无效请求(request_list empty)")));
 		}
 		$chs = curl_multi_init();
 		//使用HTTP长连接
@@ -195,10 +258,20 @@ class Http
 		foreach($request_list as $req){			
 			list($url, $params, $headers) = array_values($req);
 			$ch = self::getCurlInstance($url, $connect_timeout, $read_timeout, $max_redirect);
-			curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+			//disable expect header
+			//$headers[] = 'Expect:';
+			curl_setopt($ch, CURLOPT_HTTPHEADER, self::buildHeader($headers));
+			curl_setopt($ch, CURLOPT_USERAGENT, self::$UA);
+			//禁用 @ 前缀在 CURLOPT_POSTFIELDS 中发送文件(php >= 5.5.0)
+			if(defined('CURLOPT_SAFE_UPLOAD')){
+				curl_setopt($ch, CURLOPT_SAFE_UPLOAD, true);
+			}elseif(is_array($params)){
+				//如果有子段是@开头, php curl 会解析成需要上传文件，而且如果没有严格的用户输入过滤，可能会带来安全问题。
+				//所以我们转换成字符串，禁止用@方式上传文件。
+				$params = http_build_query($params, '', '&');
+			}
 			if($params){
-				curl_setopt($ch, CURLOPT_USERAGENT, self::$UA);
-				curl_setopt($ch, CURLOPT_POST, 1);
+				curl_setopt($ch, CURLOPT_POST, true);
 				curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
 			}
 			curl_multi_add_handle($chs, $ch);
@@ -212,27 +285,23 @@ class Http
 		}while($status === CURLM_CALL_MULTI_PERFORM || $active);
 		if($callback && $status == CURLM_OK){
 			while ($done = curl_multi_info_read($chs)) {
+				//http://php.net/curl_getinfo
 				$info = curl_getinfo($done["handle"]);
 				$error = curl_error($done["handle"]);
-				if($error){
-					throw new Exception($error);
-				}
+				//wrong may be still have body data
 				$result = curl_multi_getcontent($done["handle"]);
-				$header_lines = substr($result, 0, $info['header_size']);
-				$http_status = $headers = array();
-				foreach(explode("\r\n", $header_lines) as $ln => $line){
-					if($ln == 0){
-						list($http_status['version'], $http_status['code'], $http_status['desc'])  = explode(' ', $line);
-						continue;
-					}
-					if(empty($line)){
-						continue;
-					}
-					list($key, $val) = explode(':', $line, 2);
-					$headers[$key] = trim($val);
+				$body = $info['header_size'] && $result ? substr($result, $info['header_size']) : null;
+				if($error || !in_array($info['http_code'], array(200))){
+					$rtn = new HttpResponse('', '', $body, new Exception("url:{$info['url']}, error:$error, info:".print_r($info, true)));
+					//throw new Exception($error);
+				}else{
+					$header_lines = substr($result, 0, $info['header_size']);
+					$http_status = array();
+					$headers = self::parseHeaders($header_lines);
+					//it must have set key 0
+					list($http_status['version'], $http_status['code'], $http_status['desc'])  = explode(' ', $headers[0]);
+					$rtn = new HttpResponse($http_status, $headers, $body);//compact('info', 'error', 'result');
 				}
-				$body = substr($result, $info['header_size']);
-				$rtn = new HttpResponse($http_status, $headers, $body);//compact('info', 'error', 'result');
 				if(is_callable($callback)){
 					$callback($rtn);
 				}else{
@@ -255,11 +324,24 @@ class HttpResponse {
 	public $status = array();
 	public $header = array();
 	public $body = '';
+	public $error = null;
 	
-	public function __construct($status, $header, $body){
+	public function __construct($status, $header, $body, $error = null){
 		$this->status = $status;
 		$this->header = $header;
 		$this->body = $body;
+		$this->error = $error;
+		if($error != null){
+			Log::file($this->error(), 'http_request');
+		}
+	}
+	
+	public function error(){
+		if(get_class($this->error) == 'Exception'){
+			return $this->error->getMessage();
+		}
+		//maybe wrong
+		return @strval($this->error);
 	}
 	
 	public function json(){
@@ -267,6 +349,10 @@ class HttpResponse {
 	}
 	
 	public function raw(){
+		return $this->body;
+	}
+	
+	public function _toString(){
 		return $this->body;
 	}
 }

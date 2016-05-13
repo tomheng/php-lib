@@ -64,7 +64,7 @@ class Http
 	* @return void
 	* @author Heng Min Zhan
 	*/
-	public static function socketRequest($url, $params = array(), $headers = array(), $wait_result = true, $connect_timeout = 3)
+	public static function socketRequest($url, $params = array(), $headers = array(), $wait_result = true, $connect_timeout = 3,  $read_timeout = 3)
 	{
 		$crlf = "\r\n";
 		$method = 'GET';
@@ -74,9 +74,6 @@ class Http
 		$parts=parse_url($url);
 		if(!isset($parts['path'])){
 			$parts['path'] = '/';
-		}
-		if(!isset($parts['port'])){
-			$parts['port'] = 80;
 		}
 		if(!isset($headers['User-Agent'])){
 			$headers['User-Agent'] = self::$UA;
@@ -106,7 +103,15 @@ class Http
 		//header end
 		$out[] = '';
 		$out[] = $post_string;
-		$fp = fsockopen($parts['host'], $parts['port'], $errno, $errstr, $connect_timeout);
+		if(!isset($parts['port'])){
+			$parts['port'] = $parts['scheme'] == 'https' ? 443 : 80;
+		}
+		if($parts['scheme'] == 'https'){
+			$hostname = "ssl://{$parts['host']}";
+		}else{
+			$hostname = $parts['host'];
+		}
+		$fp = fsockopen($hostname, $parts['port'], $errno, $errstr, $connect_timeout);
 		if(!$fp)
 		{
 			return new HttpResponse('', '', '', new Exception("url: $url, error: $errstr", $errno));
@@ -129,6 +134,7 @@ class Http
 		$body = '';
 		$http_status = array();
 		if($wait_result){
+			stream_set_timeout($fp, $read_timeout);
 			//read and parse header
 			list($http_status['version'], $http_status['code'], $http_status['desc'])  = explode(' ', trim(fgets($fp, 256)));
 			
@@ -165,7 +171,12 @@ class Http
 				$body = gzinflate(substr($body, 10));
 			}
 		}
+		$info = stream_get_meta_data($fp);
 		fclose($fp);
+		if($info['timed_out']){
+			return new HttpResponse($http_status, $headers, $body, new Exception("Connection timed out!"));	
+		}
+		//$uri = $info['uri'];
 		//$result = array('http_status' => $http_status, 'header' => $headers, 'body' => $body);
 		return new HttpResponse($http_status, $headers, $body);
 	}
@@ -258,14 +269,26 @@ class Http
 		foreach($request_list as $req){			
 			list($url, $params, $headers) = array_values($req);
 			$ch = self::getCurlInstance($url, $connect_timeout, $read_timeout, $max_redirect);
-			//disable expect header
-			//$headers[] = 'Expect:';
+			//disable expect header, some server not surpport it
+			$headers[] = 'Expect:';
 			curl_setopt($ch, CURLOPT_HTTPHEADER, self::buildHeader($headers));
 			curl_setopt($ch, CURLOPT_USERAGENT, self::$UA);
+			//curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
 			//禁用 @ 前缀在 CURLOPT_POSTFIELDS 中发送文件(php >= 5.5.0)
 			if(defined('CURLOPT_SAFE_UPLOAD')){
 				curl_setopt($ch, CURLOPT_SAFE_UPLOAD, true);
-			}elseif(is_array($params)){
+			}
+			$force_urlencoded = true;
+			//没有上传文件是强制 application/x-www-form-urlencoded 编码
+			if(class_exists('CURLFile') && is_array($params)){
+				foreach($params as $_v){
+					if($_v instanceof CURLFile) {
+						$force_urlencoded = false;
+						break;
+					}
+				}
+			}
+			if($force_urlencoded){
 				//如果有子段是@开头, php curl 会解析成需要上传文件，而且如果没有严格的用户输入过滤，可能会带来安全问题。
 				//所以我们转换成字符串，禁止用@方式上传文件。
 				$params = http_build_query($params, '', '&');

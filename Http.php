@@ -64,7 +64,7 @@ class Http
 	* @return void
 	* @author Heng Min Zhan
 	*/
-	public static function socketRequest($url, $params = array(), $headers = array(), $wait_result = true, $connect_timeout = 3,  $read_timeout = 3)
+	public static function socketRequest($url, $params = array(), $headers = array(), $wait_result = true, $connect_timeout = 1,  $read_timeout = 3)
 	{
 		$crlf = "\r\n";
 		$method = 'GET';
